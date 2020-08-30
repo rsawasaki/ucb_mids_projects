@@ -1,0 +1,251 @@
+---
+title: "Final Report"
+author: "Experiments and Causality"
+output: pdf_document
+
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(
+    inputFile, encoding = encoding,
+    output_format = c('github_document', 'pdf_document')) 
+    })
+---
+
+```{r, results='hide'} 
+# load packages 
+library(data.table)
+library(foreign)
+library(sandwich)
+library(stargazer)
+library(lmtest)
+
+# set significant digits
+options(digits=3)
+```
+
+```{r}
+d <- fread("./data_clean.csv")
+```
+
+```{r}
+# Conduct chi-square goodness of fit test to compare the observed distribution to an expected distribution i.e. compare multiple observed proportions to expected probabilities.
+#Null hypothesis (H0): There is no significant difference between the observed and the expected value.
+#Alternative hypothesis (Ha): There is a significant difference between the observed and the expected value.
+# Create dataframe with number of observations for each of the possible image sequences (in this case 16)
+imgseq_dist <- data.table(Q1 = d[Attire_Type=='Female_Blouse', Group],
+                      Q2 = d[Attire_Type=='Male_Jeans_w_Tee', Group],
+                      Q3 = d[Attire_Type=='Female_Pants', Group],
+                      Q4 = d[Attire_Type=='Male_Pants', Group])
+imgseq_dist[,  Image_Sequence := trimws(paste(Q1,Q2,Q3,Q4))]
+# Create frequency table for observed number of each image sequence
+imgtab <- data.table(imgseq_dist[,table(Image_Sequence)])
+imgtab
+# Number of unique image sequences
+num_imgseq <- length(unique(imgtab[,Image_Sequence]))
+# Vector with probabilities of occurance for each image sequence. In this setup, each image sequence is equally likely
+probvec <- c(rep(1/num_imgseq, num_imgseq))
+#names(imgtab)
+#imgtab[, N]
+chisq_result <- chisq.test(imgtab[,N], p = probvec)
+chisq_result
+```
+
+```{r, results='asis'}
+# female blouse analysis (f1)
+groupby_f1 = d[ , d[Attire_Type == 'Female_Blouse']]
+
+# conduct regression on treatment_group
+mod_f1 = lm(groupby_f1$Sentiment ~ groupby_f1$Group, data = groupby_f1 )
+mod_f1$vcovHC = vcovHC(mod_f1)
+#coeftest(mod_f1, vcov. = mod_f1$vcovHC)
+
+# female blouse analysis (f2)
+groupby_f2 = d[ , d[Attire_Type == 'Female_Pants']]
+
+# conduct regression on treatment_group
+mod_f2 = lm(groupby_f2$Sentiment ~ groupby_f2$Group, data = groupby_f2 )
+mod_f2$vcovHC = vcovHC(mod_f2)
+#coeftest(mod_f2, vcov. = mod_f2$vcovHC)
+
+# male jeans with tee analysis (m1)
+groupby_m1 = d[ , d[Attire_Type == 'Male_Jeans_w_Tee']]
+
+# conduct regression on treatment_group
+mod_m1 = lm(groupby_m1$Sentiment ~ groupby_m1$Group, data = groupby_m1 )
+mod_m1$vcovHC = vcovHC(mod_m1)
+#coeftest(mod_m1, vcov. = mod_m1$vcovHC)
+
+# male pants analysis(m2)
+groupby_m2 = d[ , d[Attire_Type == 'Male_Pants']]
+
+# conduct regression on treatment_group
+mod_m2 = lm(groupby_m2$Sentiment ~ groupby_m2$Group, data = groupby_m2 )
+mod_m2$vcovHC = vcovHC(mod_m2)
+#coeftest(mod_m2, vcov. = mod_m2$vcovHC)
+
+stargazer(mod_f1, mod_m1, mod_f2, mod_m2,
+          se=list(sqrt(diag(mod_f1$vcovHC)),
+                  sqrt(diag(mod_m1$vcovHC)),
+                  sqrt(diag(mod_f2$vcovHC)),
+                  sqrt(diag(mod_m2$vcovHC))),
+          column.labels = c("Female Blouse", "Male Jeans", "Female Pants", "Male Pants"),
+          covariate.labels = c("Treatment:Dark Skin","Treatment:Dark Skin","Treatment:Dark     Skin","Treatment:Dark Skin"),
+          title = c("OLS Regression of 4 Images"),
+          add.lines = list(c("Subject Fixed Effects", "No", "No", "No", "No")),
+          type = "latex",
+          omit.stat = c("f", "adj.rsq"))
+
+```
+
+```{r, results='asis'}
+# conduct regression on treatment_group
+mod_overall = lm(Sentiment ~ Group + factor(Attire_Type) + factor(Test_Taker_ID) , data = d )
+mod_overall$vcovHC = vcovHC(mod_overall)
+#coeftest(mod_overall, vcov. = mod_overall$vcovHC)
+
+
+stargazer(mod_overall,
+          se=list(sqrt(diag(mod_overall$vcovHC))),
+          column.labels = c("Overall"),
+          covariate.labels = c("Treatment:Dark Skin"),
+          title = c("OLS Regression Within Subjects"),
+          type = "latex", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes")),
+          omit.stat = c("f", "adj.rsq"))
+```
+
+
+
+
+
+
+```{r, results='asis'}
+# subset Male and Female data 
+d_g = subset(d, d$Gender == "Male" | d$Gender == "Female")
+
+# conduct regression on treatment_group
+mod_gender = lm(Sentiment ~ Group*Gender + factor(Attire_Type) + factor(Test_Taker_ID), data = d_g)
+mod_gender$vcovHC = vcovHC(mod_gender)
+
+# Create data column of White/Caucasion
+d$EthnicityWhite = d$Ethnicity == "White / Caucasian"
+
+# conduct regression on treatment_group
+mod_white = lm(Sentiment ~ Group*EthnicityWhite + factor(Attire_Type) + factor(Test_Taker_ID), data = d)
+mod_white$vcovHC = vcovHC(mod_white)
+
+stargazer(mod_gender, mod_white,
+          se=list(sqrt(diag(mod_gender$vcovHC)),
+                  sqrt(diag(mod_white$vcovHC))),
+          column.labels = c("Gender Respondent","White Respondent"),
+          covariate.labels = c("Treatment", 
+                               "GenderMale", 
+                               "EthnicityWhite", 
+                               "factor(Attire\\_Type)Female\\_Pants",
+                               "factor(Attire\\_Type)Male\\_Jeans\\_w\\_Tee",
+                               "factor(Attire\\_Type)Male\\_Pants",
+                               "Treatment:GenderMale",
+                               "Treatment:EthnicityWhite",
+                               "Constant"),
+          title = c("OLS Regressions with Within Subject Fixed Effects"),
+          type = "latex", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes", "Yes")))
+          #omit.stat = c("f", "adj.rsq"))
+
+
+```
+
+
+
+
+```{r, results='asis'}
+# subset Male and Female data 
+d_g = subset(d, d$Gender == "Male" | d$Gender == "Female")
+
+# conduct regression on treatment_group
+mod_gender = lm(Sentiment ~ Group*Gender + factor(Attire_Type) + factor(Test_Taker_ID), data = d_g)
+mod_gender$vcovHC = vcovHC(mod_gender)
+
+
+stargazer(mod_gender,
+          se=list(sqrt(diag(mod_gender$vcovHC))),
+          column.labels = c("Overall"),
+          #covariate.labels = c("Treatment:Dark Skin"),
+          title = c("TITLE"),
+          type = "text", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes")),
+          omit.stat = c("f", "adj.rsq"))
+```
+
+```{r, results='asis'}
+# Create data column of White/Caucasion
+d$EthnicityWhite = d$Ethnicity == "White / Caucasian"
+
+# conduct regression on treatment_group
+mod_white = lm(Sentiment ~ Group*EthnicityWhite + factor(Attire_Type) + factor(Test_Taker_ID), data = d)
+mod_white$vcovHC = vcovHC(mod_white)
+
+
+stargazer(mod_white,
+          se=list(sqrt(diag(mod_white$vcovHC))),
+          column.labels = c("Overall"),
+          covariate.labels = c("Treatment:Dark Skin" ),
+          title = c("TITLE"),
+          type = "text", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes")),
+          omit.stat = c("f", "adj.rsq"))
+
+
+
+```
+
+```{r, results='asis'}
+
+stargazer(mod_gender, mod_white,
+          se=list(sqrt(diag(mod_gender$vcovHC)),
+                  sqrt(diag(mod_white$vcovHC))),
+          column.labels = c("Gender Respondent","White Respondent"),
+          covariate.labels = c("Treatment", 
+                               "GenderMale", 
+                               "EthnicityWhite", 
+                               "factor(Attire\\_Type)Female\\_Pants",
+                               "factor(Attire\\_Type)Male\\_Jeans\\_w\\_Tee",
+                               "factor(Attire\\_Type)Male\\_Pants",
+                               "Treatment:GenderMale",
+                               "Treatment:EthnicityWhite",
+                               "Constant"),
+          title = c("OLS Regressions with Subject Fixed Effects"),
+          type = "text", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes", "Yes")),
+          omit.stat = c("f", "adj.rsq"))
+
+
+
+
+
+
+```
+
+```{r, results='asis'}
+# conduct regression on treatment_group
+mod_overall = lm(Sentiment ~ Group + factor(Attire_Type) + factor(Test_Taker_ID) , data = d )
+mod_overall$vcovHC = vcovHC(mod_overall)
+# coeftest(mod_overall, vcov. = mod_overall$vcovHC)
+# + factor(Attire_Type)
+
+stargazer(mod_overall,
+          se=list(sqrt(diag(mod_overall$vcovHC))),
+          column.labels = c("Overall"),
+          #covariate.labels = c("Treatment:Dark Skin"),
+          title = c("OLS Regression of Overall"),
+          type = "text", 
+          omit = "Test_Taker_ID",
+          add.lines = list(c("Subject Fixed Effects", "Yes")),
+          omit.stat = c("f", "adj.rsq"))
+```
+
+
